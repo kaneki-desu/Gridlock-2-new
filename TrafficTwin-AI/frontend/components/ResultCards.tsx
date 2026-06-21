@@ -39,7 +39,7 @@ export default function ResultCards({
           <h3 className="text-sm font-medium text-gray-600">Predicted Clearance</h3>
           <TrendingUp size={20} className="text-blue-600" />
         </div>
-        <div className="text-2xl font-bold text-blue-600">{formatTime(predictedClearance)}</div>
+        <div className="text-2xl font-bold text-blue-600">{formatTime(predictedClearance/10)}</div>
         <p className="text-xs text-gray-500 mt-2">ML Prediction</p>
       </div>
 

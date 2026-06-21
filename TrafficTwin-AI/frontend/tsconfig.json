@@ -37,7 +37,8 @@
       {
         "name": "next"
       }
-    ]
+    ],
+    "moduleResolution": "node"
   },
   "include": [
     "next-env.d.ts",

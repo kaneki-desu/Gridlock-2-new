@@ -1,30 +1,57 @@
 'use client';
 
-import React, { useState } from 'react';
-import { submitIncident } from '@/lib/api';
-import { IncidentInput } from '@/lib/api';
+import React, { useEffect, useState } from 'react';
+import { submitIncident, IncidentInput, IncidentResponse } from '@/lib/api';
 import { AlertCircle, Loader } from 'lucide-react';
 
 interface Props {
-  onIncidentSubmitted: (incident: any) => void;
+  onIncidentSubmitted: (incident: IncidentInput, response: IncidentResponse) => void;
 }
+
+const STORAGE_KEY = 'trafficTwinIncidentForm';
+
+const defaultFormData: IncidentInput = {
+  event_type: 'unplanned',
+  event_cause: 'vehicle_breakdown',
+  latitude: 13.0400041,
+  longitude: 77.5180991,
+  corridor: 'Tumkur Road',
+  zone: 'North Zone 1',
+  junction: 'JalahaliCross',
+  priority: 'High',
+  requires_road_closure: false,
+  vehicle_type: 'lcv',
+  address: 'Tumkur Road, Bengaluru',
+  description: '',
+  start_datetime: new Date().toISOString().slice(0, 16),
+};
 
 export default function IncidentForm({ onIncidentSubmitted }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [formData, setFormData] = useState<IncidentInput>({
-    event_type: 'unplanned',
-    event_cause: 'vehicle_breakdown',
-    latitude: 13.0400041,
-    longitude: 77.5180991,
-    corridor: 'Tumkur Road',
-    zone: 'North Zone 1',
-    junction: 'JalahaliCross',
-    priority: 'High',
-    requires_road_closure: false,
-    vehicle_type: 'lcv',
-    address: 'Tumkur Road, Bengaluru',
-  });
+  const [formData, setFormData] = useState<IncidentInput>(defaultFormData);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as IncidentInput;
+        setFormData({
+          ...defaultFormData,
+          ...parsed,
+          start_datetime: parsed.start_datetime || defaultFormData.start_datetime,
+        });
+      } catch {
+        setFormData(defaultFormData);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(formData));
+  }, [formData]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, type, value } = e.target;
@@ -43,22 +70,7 @@ export default function IncidentForm({ onIncidentSubmitted }: Props) {
 
     try {
       const result = await submitIncident(formData);
-      onIncidentSubmitted(result);
-      
-      // Reset form
-      setFormData({
-        event_type: 'unplanned',
-        event_cause: 'vehicle_breakdown',
-        latitude: 13.0400041,
-        longitude: 77.5180991,
-        corridor: 'Tumkur Road',
-        zone: 'North Zone 1',
-        junction: 'JalahaliCross',
-        priority: 'High',
-        requires_road_closure: false,
-        vehicle_type: 'lcv',
-        address: 'Tumkur Road, Bengaluru',
-      });
+      onIncidentSubmitted(formData, result);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to submit incident');
       console.error('Error submitting incident:', err);
@@ -262,6 +274,33 @@ export default function IncidentForm({ onIncidentSubmitted }: Props) {
             onChange={handleChange}
             className="input-field"
             placeholder="Full address of incident"
+          />
+        </div>
+
+        {/* Description */}
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+          <textarea
+            name="description"
+            value={formData.description || ''}
+            onChange={(e) =>
+              setFormData((prev) => ({ ...prev, description: e.target.value }))
+            }
+            rows={4}
+            className="input-field resize-none"
+            placeholder="Additional incident details..."
+          />
+        </div>
+
+        {/* Start Date / Time */}
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Start Date & Time</label>
+          <input
+            type="datetime-local"
+            name="start_datetime"
+            value={formData.start_datetime || ''}
+            onChange={handleChange}
+            className="input-field"
           />
         </div>
 

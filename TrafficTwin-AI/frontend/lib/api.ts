@@ -21,6 +21,8 @@ export interface IncidentInput {
   requires_road_closure: boolean;
   vehicle_type?: string;
   address?: string;
+  description?: string;
+  start_datetime?: string;
 }
 
 export interface IncidentResponse {
@@ -31,6 +33,7 @@ export interface IncidentResponse {
   diversion_required: boolean;
   urgency_level: string;
   similar_cases_found: number;
+  llm_suggestions?: string;
 }
 
 export interface RecommendationResponse {
@@ -95,6 +98,14 @@ export async function listIncidents(skip = 0, limit = 100, status?: string) {
 export async function resolveIncident(id: number, actualClearanceTime: number) {
   const response = await api.post(`/resolve-incident/${id}`, {
     actual_clearance_time: actualClearanceTime,
+  });
+  return response.data;
+}
+
+export async function updateIncidentStatus(id: number, status: string) {
+  const response = await api.post('/update-incident-status', {
+    incident_id: id,
+    status,
   });
   return response.data;
 }

@@ -7,6 +7,8 @@ import SimilarIncidents from '@/components/SimilarIncidents';
 import IncidentChart from '@/components/IncidentChart';
 import IncidentMap from '@/components/IncidentMap';
 import { AlertCircle, CheckCircle } from 'lucide-react';
+import { retrieveSimilar, updateIncidentStatus, IncidentInput } from '@/lib/api';
+import { formatDate } from '@/lib/utils';
 
 interface IncidentResult {
   incident_id: number;
@@ -15,6 +17,7 @@ interface IncidentResult {
   diversion_required: boolean;
   urgency_level: string;
   similar_cases_found: number;
+  llm_suggestions?: string;
 }
 
 interface SimilarCase {
@@ -23,40 +26,103 @@ interface SimilarCase {
   summary: string;
 }
 
+interface CurrentIncident {
+  localId: string;
+  incident_id?: number;
+  event_type: string;
+  event_cause: string;
+  priority: string;
+  corridor?: string;
+  zone?: string;
+  junction?: string;
+  address?: string;
+  description?: string;
+  start_datetime?: string;
+  status: 'Open' | 'Resolved' | 'Closed';
+  created_at: string;
+  savedToDatabase: boolean;
+}
+
 export default function Dashboard() {
   const [result, setResult] = useState<IncidentResult | null>(null);
   const [similarCases, setSimilarCases] = useState<SimilarCase[]>([]);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [currentIncidents, setCurrentIncidents] = useState<CurrentIncident[]>([]);
 
-  const handleIncidentSubmitted = (incident: IncidentResult) => {
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem('trafficTwinCurrentIncidents');
+    if (saved) {
+      try {
+        setCurrentIncidents(JSON.parse(saved));
+      } catch {
+        setCurrentIncidents([]);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('trafficTwinCurrentIncidents', JSON.stringify(currentIncidents));
+  }, [currentIncidents]);
+
+  const handleIncidentSubmitted = async (incidentData: IncidentInput, incident: IncidentResult) => {
     setResult(incident);
     setSuccess(true);
 
-    // Fetch similar cases
+    const nextIncident: CurrentIncident = {
+      localId: `${Date.now()}`,
+      incident_id: incident.incident_id,
+      event_type: incidentData.event_type,
+      event_cause: incidentData.event_cause,
+      priority: incidentData.priority,
+      corridor: incidentData.corridor,
+      zone: incidentData.zone,
+      junction: incidentData.junction,
+      address: incidentData.address,
+      description: incidentData.description,
+      start_datetime: incidentData.start_datetime,
+      status: 'Open',
+      created_at: incidentData.start_datetime || new Date().toISOString(),
+      savedToDatabase: true,
+    };
+
+    setCurrentIncidents((prev) => [nextIncident, ...prev]);
+
     setLoadingSimilar(true);
-    // In a real scenario, this would call the API
-    setSimilarCases([
-      {
-        incident_id: 101,
-        similarity_score: 0.92,
-        summary: 'Vehicle breakdown on Tumkur Road during peak hour, resolved in 38 minutes',
-      },
-      {
-        incident_id: 102,
-        similarity_score: 0.87,
-        summary: 'LCV breakdown on Tumkur Road, heavy traffic congestion, resolved in 45 minutes',
-      },
-      {
-        incident_id: 103,
-        similarity_score: 0.81,
-        summary: 'Heavy vehicle mechanical failure, diversion implemented, resolved in 52 minutes',
-      },
-    ]);
-    setLoadingSimilar(false);
+    try {
+      const retrieved = await retrieveSimilar(incidentData);
+      setSimilarCases(retrieved.slice(0, 5));
+    } catch (error) {
+      console.error('Failed to load similar incidents', error);
+      setSimilarCases([]);
+    } finally {
+      setLoadingSimilar(false);
+    }
 
     // Hide success message after 5 seconds
     setTimeout(() => setSuccess(false), 5000);
+  };
+
+  const changeIncidentStatus = async (localId: string, nextStatus: 'Resolved' | 'Closed', incidentId?: number) => {
+    const shouldPersist = window.confirm(`Mark incident as ${nextStatus}. Save this status update to the database?`);
+
+    setCurrentIncidents((prev) =>
+      prev.map((incident) =>
+        incident.localId === localId
+          ? { ...incident, status: nextStatus }
+          : incident
+      )
+    );
+
+    if (shouldPersist && incidentId) {
+      try {
+        await updateIncidentStatus(incidentId, nextStatus.toLowerCase());
+      } catch (error) {
+        console.error('Failed to persist status update', error);
+      }
+    }
   };
 
   return (
@@ -101,6 +167,13 @@ export default function Dashboard() {
                 similarCasesFound={result.similar_cases_found}
               />
 
+              {result.llm_suggestions && (
+                <div className="card p-6">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-3">AI Suggestions</h3>
+                  <p className="text-sm text-gray-700 whitespace-pre-line">{result.llm_suggestions}</p>
+                </div>
+              )}
+
               <SimilarIncidents incidents={similarCases} loading={loadingSimilar} />
             </>
           ) : (
@@ -112,6 +185,94 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Current Incident Board */}
+      <div className="card p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800">Current Incident Board</h2>
+            <p className="text-gray-600">Track open incidents and mark status transitions.</p>
+          </div>
+        </div>
+
+        {currentIncidents.length === 0 ? (
+          <div className="p-6 text-center text-gray-500">No current incidents yet. Submit an incident to add one.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-4 py-3 text-xs font-medium text-gray-700 uppercase">ID</th>
+                  <th className="px-4 py-3 text-xs font-medium text-gray-700 uppercase">Status</th>
+                  <th className="px-4 py-3 text-xs font-medium text-gray-700 uppercase">Start Time</th>
+                  <th className="px-4 py-3 text-xs font-medium text-gray-700 uppercase">Description</th>
+                  <th className="px-4 py-3 text-xs font-medium text-gray-700 uppercase">Saved</th>
+                  <th className="px-4 py-3 text-xs font-medium text-gray-700 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {currentIncidents.map((incident) => (
+                  <tr key={incident.localId} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm text-gray-700">
+                      {incident.incident_id ? `#${incident.incident_id}` : incident.localId}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <span
+                        className={`px-2 py-1 rounded text-xs font-medium ${
+                          incident.status === 'Open'
+                            ? 'bg-blue-100 text-blue-800'
+                            : incident.status === 'Resolved'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-green-100 text-green-800'
+                        }`}
+                      >
+                        {incident.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {incident.start_datetime ? formatDate(incident.start_datetime) : 'N/A'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600 max-w-xl break-words">
+                      {incident.description || 'No description'}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${incident.savedToDatabase ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
+                        {incident.savedToDatabase ? 'Yes' : 'No'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm space-x-2">
+                      {incident.status === 'Open' && (
+                        <>
+                          <button
+                            onClick={() => changeIncidentStatus(incident.localId, 'Resolved', incident.incident_id)}
+                            className="btn-secondary"
+                          >
+                            Mark Resolved
+                          </button>
+                          <button
+                            onClick={() => changeIncidentStatus(incident.localId, 'Closed', incident.incident_id)}
+                            className="btn-primary"
+                          >
+                            Mark Closed
+                          </button>
+                        </>
+                      )}
+                      {incident.status === 'Resolved' && (
+                        <button
+                          onClick={() => changeIncidentStatus(incident.localId, 'Closed', incident.incident_id)}
+                          className="btn-primary"
+                        >
+                          Mark Closed
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Analytics Section */}

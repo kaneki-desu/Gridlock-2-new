@@ -23,6 +23,8 @@ class IncidentInput(BaseModel):
     requires_road_closure: bool = False
     vehicle_type: Optional[str] = None
     address: Optional[str] = None
+    description: Optional[str] = None
+    start_datetime: Optional[datetime] = None
     
     class Config:
         json_schema_extra = {
@@ -110,7 +112,8 @@ def submit_incident(
             requires_road_closure=incident.requires_road_closure,
             vehicle_type=incident.vehicle_type or "unknown",
             address=incident.address,
-            start_datetime=datetime.utcnow(),
+            description=incident.description,
+            start_datetime=incident.start_datetime or datetime.utcnow(),
             status="active"
         )
         
@@ -334,7 +337,7 @@ def get_recommendation(incident: IncidentInput):
             },
             similar_incidents=similar_incidents[:3]
         )
-        
+        print("LLM resp:", llm_suggestions,'\n')
         return {
             "severity": severity_level,
             "predicted_clearance": round(predicted_clearance, 2),
@@ -451,3 +454,58 @@ def list_incidents(
     incidents = query.offset(skip).limit(limit).all()
     
     return incidents
+
+
+@router.post("/update-incident-status")
+def update_incident_status(
+    incident_id: int,
+    status: str,
+    actual_clearance_time: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Update incident status and optionally persist clearance time.
+    """
+    try:
+        incident = db.query(TrafficIncident).filter(
+            TrafficIncident.id == incident_id
+        ).first()
+
+        if not incident:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Incident {incident_id} not found"
+            )
+
+        if status not in {"active", "resolved", "closed"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid status value"
+            )
+
+        incident.status = status
+
+        if status == "resolved":
+            incident.resolved_datetime = datetime.utcnow()
+            if actual_clearance_time is not None:
+                incident.actual_clearance_time_minutes = actual_clearance_time
+
+        if status == "closed":
+            incident.closed_datetime = datetime.utcnow()
+
+        db.commit()
+        db.refresh(incident)
+
+        return {
+            "incident_id": incident_id,
+            "status": status,
+            "updated": True
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error updating incident status: {str(e)}"
+        )
