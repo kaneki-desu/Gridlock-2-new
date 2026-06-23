@@ -67,10 +67,17 @@ export default function IncidentForm({ onIncidentSubmitted }: Props) {
     e.preventDefault();
     setLoading(true);
     setError(null);
-
+  
     try {
-      const result = await submitIncident(formData);
-      onIncidentSubmitted(formData, result);
+      const payload = {
+        ...formData,
+        start_datetime: formData.start_datetime
+          ? new Date(formData.start_datetime).toISOString()
+          : undefined,
+      };
+    
+      const result = await submitIncident(payload);
+      onIncidentSubmitted(payload, result);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to submit incident');
       console.error('Error submitting incident:', err);

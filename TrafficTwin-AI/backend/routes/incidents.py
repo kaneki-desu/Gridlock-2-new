@@ -6,7 +6,7 @@ from typing import Optional, List
 
 from db import get_db, TrafficIncident, PredictionResult, SeverityScore, IncidentRecommendation
 from ml.preprocessor import ClearanceTimePredictor
-from rag.retriever import RAGSystem
+from rag.client import RAGClient
 from severity.engine import SeverityEngine
 from llm.groq_client import get_llm_suggestions
 
@@ -74,13 +74,12 @@ router = APIRouter()
 
 # Global instances (in production, use dependency injection)
 predictor = ClearanceTimePredictor()
-rag_system = RAGSystem()
+rag_client = RAGClient()
 
 try:
     predictor.load_model('models/xgboost_model.pkl')
-    rag_system.load('models/faiss_index.pkl')
 except:
-    print("Models not found. Please train them first using training scripts.")
+    print("Clearance time model not found. Please train it first using training scripts.")
 
 
 @router.post("/incident", response_model=dict)
@@ -161,13 +160,16 @@ def submit_incident(
         )
         db.add(severity)
         db.commit()
-        
+        print("ok1 \n")
         # Retrieve similar incidents
-        similar = rag_system.retrieve_similar(incident_dict, k=5)
+        similar = rag_client.retrieve_similar(incident_dict, k=5)
+        print("ok2 \n")
         
         # Calculate recommendations
         urgency = SeverityEngine.calculate_urgency_level(severity_level, predicted_clearance)
+        print("ok3 \n")
         diversion_required = severity_level == "High" or predicted_clearance > 30
+        print("ok4 \n")
         
         recommendation = IncidentRecommendation(
             incident_id=incident_id,
@@ -181,8 +183,21 @@ def submit_incident(
         db.add(recommendation)
         db.commit()
 
+        print("ok5 \n")
+        # Convert datetime to string for JSON serialization
+        incident_dict_serializable = {**incident_dict}
+        print("ok6 \n")
+
+        if (
+            incident_dict_serializable.get("start_datetime")
+            and isinstance(incident_dict_serializable["start_datetime"], datetime)
+        ):
+            incident_dict_serializable["start_datetime"] = (
+                incident_dict_serializable["start_datetime"].isoformat()
+            )
+        print(incident_dict)
         llm_suggestions = get_llm_suggestions(
-            current_incident=incident_dict,
+            current_incident=incident_dict_serializable,
             recommendation={
                 "severity": severity_level,
                 "predicted_clearance": round(predicted_clearance, 2),
@@ -282,7 +297,7 @@ def retrieve_similar(incident: IncidentInput):
     """
     try:
         incident_dict = incident.dict()
-        similar_incidents = rag_system.retrieve_similar(incident_dict, k=5)
+        similar_incidents = rag_client.retrieve_similar(incident_dict, k=5)
         
         return similar_incidents
     except Exception as e:
@@ -320,14 +335,19 @@ def get_recommendation(incident: IncidentInput):
         severity_score, severity_level, _ = SeverityEngine.calculate_severity(incident_dict)
         
         # Get similar cases
-        similar_incidents = rag_system.retrieve_similar(incident_dict, k=5)
+        similar_incidents = rag_client.retrieve_similar(incident_dict, k=5)
         
         # Generate recommendations
         urgency = SeverityEngine.calculate_urgency_level(severity_level, predicted_clearance)
         diversion_required = severity_level == "High" or predicted_clearance > 30
 
+        # Convert datetime to string for JSON serialization
+        incident_dict_serializable = {**incident_dict}
+        if incident_dict_serializable.get('start_datetime'):
+            incident_dict_serializable['start_datetime'] = incident_dict_serializable['start_datetime'].isoformat()
+
         llm_suggestions = get_llm_suggestions(
-            current_incident=incident_dict,
+            current_incident=incident_dict_serializable,
             recommendation={
                 "severity": severity_level,
                 "predicted_clearance": round(predicted_clearance, 2),
@@ -399,7 +419,7 @@ def resolve_incident(
             'clearance_time': actual_clearance_time
         }
         
-        rag_system.index_incident(incident_dict, incident_id)
+        rag_client.index_incident(incident_dict, incident_id)
         
         return {
             "incident_id": incident_id,

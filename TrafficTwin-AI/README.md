@@ -24,12 +24,14 @@ An intelligent, full-stack traffic management system powered by machine learning
 ### 4. **RAG System (Retrieval-Augmented Generation)**
 - Sentence Transformer embeddings for incident summarization
 - FAISS vector database for semantic similarity search
+- Deployed as a separate microservice to isolate embedding/torch RAM usage
 - Retrieves top 5 historically similar incidents
 - Helps operators understand patterns and solutions
 
 ### 5. **Recommendation Engine**
 - Combines severity, ML predictions, and historical patterns
 - Suggests diversion requirements, urgency levels, estimated resolution times
+- Uses Groq LLM suggestions based on top similar incidents for tactical guidance
 - Data-driven decision support for traffic managers
 
 ### 6. **Interactive Dashboard**
@@ -37,6 +39,8 @@ An intelligent, full-stack traffic management system powered by machine learning
 - Live prediction cards with confidence metrics
 - Severity and urgency visualization
 - Historical incident reference panel
+- Current incident board with open → resolved → closed status tracking
+- Form state persistence via local storage to avoid losing entered values
 - Interactive incident map with severity markers
 - Analytics with charts and trends
 
@@ -46,7 +50,9 @@ An intelligent, full-stack traffic management system powered by machine learning
 TrafficTwin-AI/
 ├── backend/
 │   ├── app.py                    # FastAPI main application
-│   ├── requirements.txt           # Python dependencies
+│   ├── requirements.txt          # Python dependencies for core backend
+│   ├── requirements-rag.txt      # Python dependencies for the separate RAG service
+│   ├── rag_service.py            # Separate FastAPI service for RAG similarity
 │   ├── train_model.py            # XGBoost training script
 │   ├── build_rag_index.py        # FAISS indexing script
 │   ├── schema.sql                # PostgreSQL schema
@@ -142,7 +148,13 @@ TrafficTwin-AI/
    python build_rag_index.py --data-path ../path/to/data.csv
    ```
 
-6. **Run FastAPI server**
+6. **Run the RAG microservice**
+   ```bash
+   pip install -r requirements-rag.txt
+   uvicorn rag_service:app --host 0.0.0.0 --port 8001 --reload
+   ```
+
+7. **Run FastAPI server**
    ```bash
    python app.py
    # Server runs on http://localhost:8000
@@ -191,7 +203,9 @@ Content-Type: application/json
   "corridor": "Tumkur Road",
   "priority": "High",
   "requires_road_closure": false,
-  "vehicle_type": "lcv"
+  "vehicle_type": "lcv",
+  "description": "Vehicle stalled in middle lane",
+  "start_datetime": "2026-06-21T14:30"
 }
 
 Response:
@@ -202,7 +216,8 @@ Response:
   "predicted_clearance": 42.5,
   "diversion_required": true,
   "urgency_level": "Critical",
-  "similar_cases_found": 5
+  "similar_cases_found": 5,
+  "llm_suggestions": "Deploy 4 policemen, set up barricades, clear lanes, and coordinate tow services."
 }
 ```
 
@@ -259,7 +274,8 @@ Response:
   "diversion_required": true,
   "urgency_level": "Critical",
   "similar_cases_found": 5,
-  "estimated_resolution_time": 42
+  "estimated_resolution_time": 42,
+  "llm_suggestions": "Use 4 policemen, deploy barricades, and clear the roadway by directing traffic to the right lane."
 }
 ```
 
@@ -278,6 +294,24 @@ Response:
   "status": "resolved",
   "actual_clearance_time": 45,
   "message": "Incident resolved and learning systems updated"
+}
+```
+
+#### Update Incident Status
+```http
+POST /update-incident-status
+Content-Type: application/json
+
+{
+  "incident_id": 1,
+  "status": "closed"
+}
+
+Response:
+{
+  "incident_id": 1,
+  "status": "closed",
+  "updated": true
 }
 ```
 

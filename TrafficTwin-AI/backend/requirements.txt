@@ -9,10 +9,6 @@ pandas>=2.2
 scikit-learn>=1.5
 xgboost>=2.1
 
-sentence-transformers>=3.0
-faiss-cpu>=1.8
-torch>=2.5
-
 pydantic>=2.5
 pydantic-settings>=2.1
-requests
+requests>=2.0

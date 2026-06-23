@@ -47,9 +47,9 @@ def get_llm_suggestions(
             {
                 "role": "user",
                 "content": build_llm_prompt(
-                    current_incident,
-                    recommendation,
-                    similar_incidents
+                    str(current_incident),
+                    str(recommendation),
+                    str(similar_incidents)
                 )
             }
         ],

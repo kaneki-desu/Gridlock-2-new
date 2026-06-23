@@ -147,7 +147,11 @@ class FAISSIndex:
                 incident_id = self.incident_ids[idx]
                 summary = self.incident_summaries[idx]
                 similarity_score = 1 / (1 + distance)  # Convert distance to similarity
-                results.append((incident_id, similarity_score, summary))
+                results.append((
+                    int(incident_id),
+                    float(similarity_score),
+                    str(summary)
+                ))
         
         return results
     
